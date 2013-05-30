@@ -49,8 +49,108 @@ class ClearOS_Sniffs_Commenting_FileCommentSniff extends PEAR_Sniffs_Commenting_
     protected function processPHPVersion($commentStart, $commentEnd, $commentText)
     {
         return;
-    }//end processPHPVersion()
+    }
 
-}//end class
+    // Allow all lower case below
+    protected function processCategory($errorPos)
+    {
+        $category = $this->commentParser->getCategory();
+        if ($category !== null) {
+            $content = $category->getContent();
+            $content = ucfirst($content); // ClearFoundation, allow lower case
+            if ($content !== '') {
+                if (PHP_CodeSniffer::isUnderscoreName($content) !== true) {
+                    $newContent = str_replace(' ', '_', $content);
+                    $nameBits   = explode('_', $newContent);
+                    $firstBit   = array_shift($nameBits);
+                    $newName    = ucfirst($firstBit).'_';
+                    foreach ($nameBits as $bit) {
+                        $newName .= ucfirst($bit).'_';
+                    }
+
+                    $error     = 'Category name "%s" is not valid; consider "%s" instead';
+                    $validName = trim($newName, '_');
+                    $data      = array(
+                                  $content,
+                                  $validName,
+                                 );
+                    $this->currentFile->addError($error, $errorPos, 'InvalidCategory', $data);
+                }
+            } else {
+                $error = '@category tag must contain a name';
+                $this->currentFile->addError($error, $errorPos, 'EmptyCategory');
+            }
+        }
+    }
+
+    protected function processPackage($errorPos)
+    {
+        $package = $this->commentParser->getPackage();
+        if ($package === null) {
+            return;
+        }
+
+        $content = $package->getContent();
+        if ($content === '') {
+            $error = '@package tag must contain a name';
+            $this->currentFile->addError($error, $errorPos, 'EmptyPackage');
+            return;
+        }
+
+        $content = ucfirst($content); // ClearFoundation, allow lower case
+        if (PHP_CodeSniffer::isUnderscoreName($content) === true) {
+            return;
+        }
+
+        $newContent = str_replace(' ', '_', $content);
+        $newContent = preg_replace('/[^A-Za-z_]/', '', $newContent);
+        $nameBits   = explode('_', $newContent);
+        $firstBit   = array_shift($nameBits);
+        $newName    = strtoupper($firstBit{0}).substr($firstBit, 1).'_';
+        foreach ($nameBits as $bit) {
+            $newName .= strtoupper($bit{0}).substr($bit, 1).'_';
+        }
+
+        $error     = 'Package name "%s" is not valid; consider "%s" instead';
+        $validName = trim($newName, '_');
+        $data      = array(
+                      $content,
+                      $validName,
+                     );
+        $this->currentFile->addError($error, $errorPos, 'InvalidPackage', $data);
+
+    }
+
+    protected function processSubpackage($errorPos)
+    {
+        $package = $this->commentParser->getSubpackage();
+        if ($package !== null) {
+            $content = $package->getContent();
+            $content = ucfirst($content); // ClearFoundation, allow lower case
+            if ($content !== '') {
+                if (PHP_CodeSniffer::isUnderscoreName($content) !== true) {
+                    $newContent = str_replace(' ', '_', $content);
+                    $nameBits   = explode('_', $newContent);
+                    $firstBit   = array_shift($nameBits);
+                    $newName    = strtoupper($firstBit{0}).substr($firstBit, 1).'_';
+                    foreach ($nameBits as $bit) {
+                        $newName .= strtoupper($bit{0}).substr($bit, 1).'_';
+                    }
+
+                    $error     = 'Subpackage name "%s" is not valid; consider "%s" instead';
+                    $validName = trim($newName, '_');
+                    $data      = array(
+                                  $content,
+                                  $validName,
+                                 );
+                    $this->currentFile->addError($error, $errorPos, 'InvalidSubpackage', $data);
+                }
+            } else {
+                $error = '@subpackage tag must contain a name';
+                $this->currentFile->addError($error, $errorPos, 'EmptySubpackage');
+            }
+        }
+    }
+}
 
 ?>
