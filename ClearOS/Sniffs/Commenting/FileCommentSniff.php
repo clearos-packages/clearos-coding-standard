@@ -14,9 +14,11 @@
  * @link      http://pear.php.net/package/PHP_CodeSniffer
  */
 
+/*
 if (class_exists('PHP_CodeSniffer_CommentParser_ClassCommentParser', true) === false) {
     throw new PHP_CodeSniffer_Exception('Class PHP_CodeSniffer_CommentParser_ClassCommentParser not found');
 }
+*/
 
 /**
  * Parses and verifies the doc comments for files.
@@ -45,6 +47,87 @@ if (class_exists('PHP_CodeSniffer_CommentParser_ClassCommentParser', true) === f
 
 class ClearOS_Sniffs_Commenting_FileCommentSniff extends PEAR_Sniffs_Commenting_FileCommentSniff
 {
+    public function process(PHP_CodeSniffer_File $phpcsFile, $stackPtr)
+    {
+        $tokens = $phpcsFile->getTokens();
+
+        // Find the next non whitespace token.
+        $commentStart = $phpcsFile->findNext(T_WHITESPACE, ($stackPtr + 1), null, true);
+
+        // Allow declare() statements at the top of the file.
+        if ($tokens[$commentStart]['code'] === T_DECLARE) {
+            $semicolon    = $phpcsFile->findNext(T_SEMICOLON, ($commentStart + 1));
+            $commentStart = $phpcsFile->findNext(T_WHITESPACE, ($semicolon + 1), null, true);
+        }
+
+        // Ignore vim header.
+        if ($tokens[$commentStart]['code'] === T_COMMENT) {
+            if (strstr($tokens[$commentStart]['content'], 'vim:') !== false) {
+                $commentStart = $phpcsFile->findNext(
+                    T_WHITESPACE,
+                    ($commentStart + 1),
+                    null,
+                    true
+                );
+            }
+        }
+
+        $errorToken = ($stackPtr + 1);
+        if (isset($tokens[$errorToken]) === false) {
+            $errorToken--;
+        }
+
+        if ($tokens[$commentStart]['code'] === T_CLOSE_TAG) {
+            // We are only interested if this is the first open tag.
+            return ($phpcsFile->numTokens + 1);
+        } else if ($tokens[$commentStart]['code'] === T_COMMENT) {
+            $error = 'You must use "/**" style comments for a file comment';
+            $phpcsFile->addError($error, $errorToken, 'WrongStyle');
+            $phpcsFile->recordMetric($stackPtr, 'File has doc comment', 'yes');
+            return ($phpcsFile->numTokens + 1);
+        } else if ($commentStart === false
+            || $tokens[$commentStart]['code'] !== T_DOC_COMMENT_OPEN_TAG
+        ) {
+            $phpcsFile->addError('Missing file doc comment', $errorToken, 'Missing');
+            $phpcsFile->addError('Missing file doc comment', $errorToken, 'Missing');
+            $phpcsFile->recordMetric($stackPtr, 'File has doc comment', 'no');
+            return ($phpcsFile->numTokens + 1);
+        } else {
+            $phpcsFile->recordMetric($stackPtr, 'File has doc comment', 'yes');
+        }
+
+        // Check the PHP Version, which should be in some text before the first tag.
+        $commentEnd = $tokens[$commentStart]['comment_closer'];
+        $found      = false;
+        for ($i = ($commentStart + 1); $i < $commentEnd; $i++) {
+            if ($tokens[$i]['code'] === T_DOC_COMMENT_TAG) {
+                break;
+            } else if ($tokens[$i]['code'] === T_DOC_COMMENT_STRING
+                && strstr(strtolower($tokens[$i]['content']), 'php version') !== false
+            ) {
+                $found = true;
+                break;
+            }
+        }
+
+        // ClearFoundation: Remove PHP version check
+        /*
+        if ($found === false) {
+            $error = 'PHP version not specified';
+            $phpcsFile->addWarning($error, $commentEnd, 'MissingVersion');
+        }
+        */
+
+        // Check each tag.
+        $this->processTags($phpcsFile, $stackPtr, $commentStart);
+
+        // Ignore the rest of the file.
+        return ($phpcsFile->numTokens + 1);
+
+    }//end process()
+
+
+
     // ClearFoundation - do not check for "PHP Version" tag
     protected function processPHPVersion($commentStart, $commentEnd, $commentText)
     {
@@ -52,105 +135,117 @@ class ClearOS_Sniffs_Commenting_FileCommentSniff extends PEAR_Sniffs_Commenting_
     }
 
     // Allow all lower case below
-    protected function processCategory($errorPos)
+    protected function processCategory(PHP_CodeSniffer_File $phpcsFile, array $tags)
     {
-        $category = $this->commentParser->getCategory();
-        if ($category !== null) {
-            $content = $category->getContent();
+        $tokens = $phpcsFile->getTokens();
+        foreach ($tags as $tag) {
+            if ($tokens[($tag + 2)]['code'] !== T_DOC_COMMENT_STRING) {
+                // No content.
+                continue;
+            }
+
+            $content = $tokens[($tag + 2)]['content'];
             $content = ucfirst($content); // ClearFoundation, allow lower case
-            if ($content !== '') {
-                if (PHP_CodeSniffer::isUnderscoreName($content) !== true) {
-                    $newContent = str_replace(' ', '_', $content);
-                    $nameBits   = explode('_', $newContent);
-                    $firstBit   = array_shift($nameBits);
-                    $newName    = ucfirst($firstBit).'_';
-                    foreach ($nameBits as $bit) {
+            if (PHP_CodeSniffer::isUnderscoreName($content) !== true) {
+                $newContent = str_replace(' ', '_', $content);
+                $nameBits   = explode('_', $newContent);
+                $firstBit   = array_shift($nameBits);
+                $newName    = ucfirst($firstBit).'_';
+                foreach ($nameBits as $bit) {
+                    if ($bit !== '') {
                         $newName .= ucfirst($bit).'_';
                     }
-
-                    $error     = 'Category name "%s" is not valid; consider "%s" instead';
-                    $validName = trim($newName, '_');
-                    $data      = array(
-                                  $content,
-                                  $validName,
-                                 );
-                    $this->currentFile->addError($error, $errorPos, 'InvalidCategory', $data);
                 }
-            } else {
-                $error = '@category tag must contain a name';
-                $this->currentFile->addError($error, $errorPos, 'EmptyCategory');
+
+                $error     = 'Category name "%s" is not valid; consider "%s" instead';
+                $validName = trim($newName, '_');
+                $data      = array(
+                              $content,
+                              $validName,
+                             );
+                $phpcsFile->addError($error, $tag, 'InvalidCategory', $data);
             }
-        }
-    }
+        }//end foreach
 
-    protected function processPackage($errorPos)
+    }//end processCategory()
+
+
+    // Allow all lower case below
+    protected function processPackage(PHP_CodeSniffer_File $phpcsFile, array $tags)
     {
-        $package = $this->commentParser->getPackage();
-        if ($package === null) {
-            return;
-        }
+        $tokens = $phpcsFile->getTokens();
+        foreach ($tags as $tag) {
+            if ($tokens[($tag + 2)]['code'] !== T_DOC_COMMENT_STRING) {
+                // No content.
+                continue;
+            }
 
-        $content = $package->getContent();
-        if ($content === '') {
-            $error = '@package tag must contain a name';
-            $this->currentFile->addError($error, $errorPos, 'EmptyPackage');
-            return;
-        }
-
-        $content = ucfirst($content); // ClearFoundation, allow lower case
-        if (PHP_CodeSniffer::isUnderscoreName($content) === true) {
-            return;
-        }
-
-        $newContent = str_replace(' ', '_', $content);
-        $newContent = preg_replace('/[^A-Za-z_]/', '', $newContent);
-        $nameBits   = explode('_', $newContent);
-        $firstBit   = array_shift($nameBits);
-        $newName    = strtoupper($firstBit{0}).substr($firstBit, 1).'_';
-        foreach ($nameBits as $bit) {
-            $newName .= strtoupper($bit{0}).substr($bit, 1).'_';
-        }
-
-        $error     = 'Package name "%s" is not valid; consider "%s" instead';
-        $validName = trim($newName, '_');
-        $data      = array(
-                      $content,
-                      $validName,
-                     );
-        $this->currentFile->addError($error, $errorPos, 'InvalidPackage', $data);
-
-    }
-
-    protected function processSubpackage($errorPos)
-    {
-        $package = $this->commentParser->getSubpackage();
-        if ($package !== null) {
-            $content = $package->getContent();
+            $content = $tokens[($tag + 2)]['content'];
             $content = ucfirst($content); // ClearFoundation, allow lower case
-            if ($content !== '') {
-                if (PHP_CodeSniffer::isUnderscoreName($content) !== true) {
-                    $newContent = str_replace(' ', '_', $content);
-                    $nameBits   = explode('_', $newContent);
-                    $firstBit   = array_shift($nameBits);
-                    $newName    = strtoupper($firstBit{0}).substr($firstBit, 1).'_';
-                    foreach ($nameBits as $bit) {
-                        $newName .= strtoupper($bit{0}).substr($bit, 1).'_';
-                    }
-
-                    $error     = 'Subpackage name "%s" is not valid; consider "%s" instead';
-                    $validName = trim($newName, '_');
-                    $data      = array(
-                                  $content,
-                                  $validName,
-                                 );
-                    $this->currentFile->addError($error, $errorPos, 'InvalidSubpackage', $data);
-                }
-            } else {
-                $error = '@subpackage tag must contain a name';
-                $this->currentFile->addError($error, $errorPos, 'EmptySubpackage');
+            if (PHP_CodeSniffer::isUnderscoreName($content) === true) {
+                continue;
             }
-        }
-    }
+
+            $newContent = str_replace(' ', '_', $content);
+            $newContent = trim($newContent, '_');
+            $newContent = preg_replace('/[^A-Za-z_]/', '', $newContent);
+            $nameBits   = explode('_', $newContent);
+            $firstBit   = array_shift($nameBits);
+            $newName    = strtoupper($firstBit{0}).substr($firstBit, 1).'_';
+            foreach ($nameBits as $bit) {
+                if ($bit !== '') {
+                    $newName .= strtoupper($bit{0}).substr($bit, 1).'_';
+                }
+            }
+
+            $error     = 'Package name "%s" is not valid; consider "%s" instead';
+            $validName = trim($newName, '_');
+            $data      = array(
+                          $content,
+                          $validName,
+                         );
+            $phpcsFile->addError($error, $tag, 'InvalidPackage', $data);
+        }//end foreach
+
+    }//end processPackage()
+
+    // Allow all lower case below
+    protected function processSubpackage(PHP_CodeSniffer_File $phpcsFile, array $tags)
+    {
+        $tokens = $phpcsFile->getTokens();
+        foreach ($tags as $tag) {
+            if ($tokens[($tag + 2)]['code'] !== T_DOC_COMMENT_STRING) {
+                // No content.
+                continue;
+            }
+
+            $content = $tokens[($tag + 2)]['content'];
+            $content = ucfirst($content); // ClearFoundation, allow lower case
+            if (PHP_CodeSniffer::isUnderscoreName($content) === true) {
+                continue;
+            }
+
+            $newContent = str_replace(' ', '_', $content);
+            $nameBits   = explode('_', $newContent);
+            $firstBit   = array_shift($nameBits);
+            $newName    = strtoupper($firstBit{0}).substr($firstBit, 1).'_';
+            foreach ($nameBits as $bit) {
+                if ($bit !== '') {
+                    $newName .= strtoupper($bit{0}).substr($bit, 1).'_';
+                }
+            }
+
+            $error     = 'Subpackage name "%s" is not valid; consider "%s" instead';
+            $validName = trim($newName, '_');
+            $data      = array(
+                          $content,
+                          $validName,
+                         );
+            $phpcsFile->addError($error, $tag, 'InvalidSubpackage', $data);
+        }//end foreach
+
+    }//end processSubpackage()
+
 }
 
 ?>

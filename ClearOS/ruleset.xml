@@ -16,7 +16,7 @@
  <rule ref="PEAR.Classes.ClassDeclaration"/>
  <!-- rule ref="PEAR.Commenting.ClassComment"/  Using ClearOS class do disable some checks -->
  <!-- rule ref="PEAR.Commenting.FileComment"/   Using ClearOS class to disable some checks -->
- <rule ref="PEAR.Commenting.FunctionComment"/>
+ <!-- rule ref="PEAR.Commenting.FunctionComment"/   Using ClearOS class to disable some checks -->
  <rule ref="PEAR.Commenting.InlineComment"/>
  <rule ref="PEAR.ControlStructures.ControlSignature"/>
  <rule ref="PEAR.ControlStructures.MultiLineCondition"/>
