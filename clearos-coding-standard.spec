@@ -3,7 +3,7 @@
 #------------------------------------------------------------------------------
 
 Name: clearos-coding-standard
-Version: 6.4.0
+Version: 7.1.0
 Release: 1%{dist}
 Summary: ClearOS coding standard for PHP CodeSniffer
 License: GPLv3
